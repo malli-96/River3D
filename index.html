@@ -86,9 +86,27 @@ h1 em{font-style:normal;color:var(--ink);font-size:.42em;vertical-align:.95em;ma
 .btn:focus-visible{outline:3px solid var(--hud);outline-offset:3px}
 .foot{text-align:center;font-size:12px;color:#8fa2bd;letter-spacing:.05em;line-height:1.6}
 .foot .pad-on{color:var(--hud)}
-.big-score{font-family:var(--display);font-size:52px;color:var(--orange);text-align:center;text-shadow:0 4px 0 var(--orange-deep);font-variant-numeric:tabular-nums}
+.big-score{font-family:var(--display);font-size:44px;line-height:1;color:var(--orange);text-align:center;text-shadow:0 4px 0 var(--orange-deep);font-variant-numeric:tabular-nums}
 .row{display:flex;justify-content:center;flex-wrap:wrap;gap:8px 24px;font-size:15px;color:#dfe6f0}
 .row b{color:var(--hud)}
+.over-card .card-body{gap:12px;padding-block:16px 14px}
+.over-head{display:flex;align-items:baseline;justify-content:center;flex-wrap:wrap;gap:4px 22px}
+#entry{display:flex;flex-direction:column;align-items:center;gap:8px;padding:10px 12px;border:1px solid var(--orange);border-radius:3px;background:rgba(242,120,29,.1)}
+#entry label{font-size:13px;letter-spacing:.06em;color:var(--target);text-align:center}
+.entry-row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;justify-content:center}
+#entryName{width:9ch;font-family:var(--display);font-size:22px;letter-spacing:.12em;text-transform:uppercase;text-align:center;color:var(--ink);background:rgba(5,12,24,.8);border:2px solid var(--hud);border-radius:3px;padding:6px 8px;user-select:text;-webkit-user-select:text}
+#entryName:focus-visible{outline:2px solid var(--orange);outline-offset:2px}
+.btn.sm{font-size:16px;padding:9px 18px}
+.board-wrap{min-width:0;overflow-x:auto}
+.board{width:100%;border-collapse:collapse;font-size:14px;font-variant-numeric:tabular-nums}
+.board caption{font-family:var(--display);font-size:15px;letter-spacing:.08em;color:var(--orange);padding-bottom:6px}
+.board th{font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:var(--hud);font-weight:700;text-align:left;padding:3px 8px;border-bottom:1px solid var(--hud-dim)}
+.board td{padding:2px 8px;color:#dfe6f0;border-bottom:1px solid rgba(141,255,184,.08)}
+.board .num{text-align:right}
+.board td.rk{color:#8fa2bd;width:2.5em}
+.board td.nm{font-weight:700;letter-spacing:.1em}
+.board tr.me td{background:rgba(242,120,29,.28);color:var(--ink)}
+.board tr.empty td{color:#56657c}
 
 /* Touch controls */
 #touch{position:fixed;inset:auto 0 0 0;display:none;justify-content:space-between;align-items:flex-end;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-bottom:calc(env(safe-area-inset-bottom,0px) + 16px);pointer-events:none}
@@ -177,12 +195,22 @@ h1 em{font-style:normal;color:var(--ink);font-size:.42em;vertical-align:.95em;ma
 </div>
 
 <div class="overlay" id="over" hidden>
-  <div class="card">
+  <div class="card over-card">
     <div class="stripes"></div>
     <div class="card-body">
       <div class="kicker" id="overReason">Mise skončila</div>
-      <div class="big-score" id="overScore">0</div>
-      <div class="row"><span>Zbořené mosty <b id="overBridges">0</b></span><span>Rekord <b id="overBest">0</b></span></div>
+      <div class="over-head"><div class="big-score" id="overScore">0</div><div class="row"><span>Zbořené mosty <b id="overBridges">0</b></span></div></div>
+      <form id="entry" hidden autocomplete="off">
+        <label for="entryName" id="entryLabel">Jsi v žebříčku! Napiš své jméno (max. 7 znaků)</label>
+        <div class="entry-row"><input id="entryName" name="entryName" type="text" maxlength="7" spellcheck="false" autocapitalize="characters"><button class="btn sm" type="submit">Zapsat</button></div>
+      </form>
+      <div class="board-wrap">
+        <table class="board">
+          <caption>Žebříček 10 nejlepších</caption>
+          <thead><tr><th>#</th><th>Pilot</th><th class="num">Body</th><th class="num">Mosty</th></tr></thead>
+          <tbody id="boardBody"></tbody>
+        </table>
+      </div>
       <button class="btn" id="btnAgain" type="button">Letět znovu</button>
     </div>
     <div class="stripes bottom"></div>
@@ -736,6 +764,32 @@ const AU={ctx:null,muted:false,loops:{},voices:new Map(),
 const P={x:0,y:7,z:0,vx:0,vy:0,speed:45,target:45,pitch:0,fuel:1,bank:0};
 let mode='attract',score=0,lives=3,bridges=0,nextLife=10000,camMode='cockpit',best=0,timer=0,shake=0,fireCd=0,klaxonCd=0,refuelCd=0,deathReason='',time=0,refueling=false,muzzleT=0,gunSide=1;
 try{best=parseInt(localStorage.getItem('rr3d-best')||'0',10)||0;}catch(e){}
+/* top-10 leaderboard, kept in this browser */
+const BOARD_KEY='rr3d-board';
+let board=[],pendingEntry=false;
+try{const a=JSON.parse(localStorage.getItem(BOARD_KEY)||'[]');if(Array.isArray(a))board=a.filter(x=>x&&typeof x.s==='number'&&typeof x.n==='string').sort((a,b)=>b.s-a.s).slice(0,10);}catch(e){board=[];}
+if(board.length)best=Math.max(best,board[0].s);
+function saveBoard(){try{localStorage.setItem(BOARD_KEY,JSON.stringify(board));}catch(e){}}
+function qualifies(sc){return sc>0&&(board.length<10||sc>board[board.length-1].s);}
+function renderBoard(hl){
+  const tb=$('boardBody');tb.textContent='';
+  for(let i=0;i<10;i++){
+    const r=board[i],tr=document.createElement('tr');
+    if(i===hl)tr.className='me';else if(!r)tr.className='empty';
+    const cells=[[(i+1)+'.','rk'],[r?r.n:'—','nm'],[r?r.s.toLocaleString('cs-CZ'):'','num'],[r?String(r.b):'','num']];
+    for(const [t,c] of cells){const td=document.createElement('td');td.textContent=t;td.className=c;tr.appendChild(td);}
+    tb.appendChild(tr);
+  }
+}
+function submitEntry(){
+  if(!pendingEntry)return;
+  const n=($('entryName').value||'').replace(/[\u0000-\u001f]/g,'').trim().toUpperCase().slice(0,7)||'PILOT';
+  pendingEntry=false;
+  const rec={n,s:score,b:bridges,d:Date.now()};
+  board.push(rec);board.sort((a,b)=>b.s-a.s||a.d-b.d);board=board.slice(0,10);saveBoard();
+  try{localStorage.setItem('rr3d-name',n);}catch(e){}
+  $('entry').hidden=true;renderBoard(board.indexOf(rec));$('btnAgain').focus();
+}
 $('best').textContent=best.toLocaleString('cs-CZ');
 const entities=[],bullets=[],shells=[],tracerPool=[];
 const spawned=new Set();
@@ -892,9 +946,14 @@ function afterDeath(){
   if(lives<0){
     mode='over';msg('');AU.killAll();
     if(score>best){best=score;try{localStorage.setItem('rr3d-best',String(best));}catch(e){}}
-    $('overScore').textContent=score.toLocaleString('cs-CZ');$('overBridges').textContent=bridges;$('overBest').textContent=best.toLocaleString('cs-CZ');$('best').textContent=best.toLocaleString('cs-CZ');
+    $('overScore').textContent=score.toLocaleString('cs-CZ');$('overBridges').textContent=bridges;$('best').textContent=best.toLocaleString('cs-CZ');
     $('overReason').textContent=deathReason+' · Konec mise';
-    document.body.classList.remove('playing');$('over').hidden=false;$('tools').hidden=true;$('btnAgain').focus();
+    pendingEntry=qualifies(score);
+    $('entry').hidden=!pendingEntry;
+    if(pendingEntry){let rank=board.filter(r=>r.s>=score).length+1;$('entryLabel').textContent=rank+'. místo v žebříčku! Napiš své jméno (max. 7 znaků)';let nm='';try{nm=localStorage.getItem('rr3d-name')||'';}catch(e){}$('entryName').value=nm;}
+    renderBoard(-1);
+    document.body.classList.remove('playing');$('over').hidden=false;$('tools').hidden=true;
+    if(pendingEntry){const inp=$('entryName');inp.focus();inp.select();}else $('btnAgain').focus();
     return;
   }
   hudLives();
@@ -1201,7 +1260,8 @@ function frame(now){
   PAD=pollPad();
   if(PAD.pause)togglePause();
   else if(PAD.start){
-    if(!$('menu').hidden||!$('over').hidden)startGame();
+    if(!$('over').hidden&&pendingEntry)submitEntry();
+    else if(!$('menu').hidden||!$('over').hidden)startGame();
     else if(mode==='paused')togglePause();
   }
   if(PAD.cam&&(mode==='play'||mode==='ready'))toggleCam();
@@ -1231,13 +1291,14 @@ const held={};
 function actionFor(e){if(e.key==='+'||e.key==='=')return 'faster';if(e.key==='-'||e.key==='_')return 'slower';return codeAct[e.code]||null;}
 addEventListener('keydown',e=>{
   AU.resume();
+  if(e.target&&e.target.tagName==='INPUT')return;   /* typing a name for the leaderboard */
   const a=actionFor(e);
   if(a){keys[a]=true;held[e.code]=a;e.preventDefault();}
   if(e.repeat)return;
   if(e.code==='KeyC')toggleCam();
   if(e.code==='KeyM')toggleSound();
   if(e.code==='KeyP'||e.code==='Escape')togglePause();
-  if((e.code==='Enter'||e.code==='Space')&&(!$('menu').hidden||!$('over').hidden)&&mode!=='play'){e.preventDefault();startGame();}
+  if((e.code==='Enter'||e.code==='Space')&&(!$('menu').hidden||!$('over').hidden)&&mode!=='play'&&!pendingEntry){e.preventDefault();startGame();}
 });
 addEventListener('keyup',e=>{const a=held[e.code]||actionFor(e);if(a)keys[a]=false;delete held[e.code];});
 addEventListener('blur',()=>{for(const k in keys)keys[k]=false;});
@@ -1250,7 +1311,8 @@ document.querySelectorAll('.tb').forEach(b=>{
   b.addEventListener('pointerdown',on);b.addEventListener('pointerup',off);b.addEventListener('pointercancel',off);b.addEventListener('pointerleave',off);
 });
 $('btnStart').addEventListener('click',startGame);
-$('btnAgain').addEventListener('click',startGame);
+$('btnAgain').addEventListener('click',()=>{pendingEntry=false;startGame();});
+$('entry').addEventListener('submit',e=>{e.preventDefault();submitEntry();});
 $('btnResume').addEventListener('click',togglePause);
 $('btnCam').addEventListener('click',e=>{toggleCam();e.currentTarget.blur();});
 $('btnSnd').addEventListener('click',e=>{toggleSound();e.currentTarget.blur();});
