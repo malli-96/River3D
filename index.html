@@ -242,8 +242,8 @@ body.cockpit .fuelbox,body.cockpit .alt{display:none}
    Vlož adresu projektu a veřejný klíč (anon / publishable) z Supabase:
    Project Settings → API (nebo tlačítko Connect). Když necháš prázdné,
    žebříček se ukládá jen v prohlížeči hráče. */
-const SUPABASE_URL = 'https://pcumgxnyfhnntnxvlgnk.supabase.co';   // např. 'https://abcdefghijkl.supabase.co'
-const SUPABASE_KEY = 'sb_publishable_r_baRR4WO8QsYVniKeS0fg_wnkOkrIc';   // např. 'sb_publishable_...' nebo dlouhý klíč začínající 'eyJ...'
+const SUPABASE_URL = '';   // např. 'https://abcdefghijkl.supabase.co'
+const SUPABASE_KEY = '';   // např. 'sb_publishable_...' nebo dlouhý klíč začínající 'eyJ...'
 </script>
 <script>
 (function(){
@@ -286,7 +286,13 @@ function genSection(i){
     W[s]=lerp(cw[k],cw[k+1],t);C[s]=lerp(cc[k],cc[k+1],t);
     I[s]=Math.max(0,Math.min(lerp(ci[k],ci[k+1],t),W[s]-16));
   }
-  return {W,C,I};
+  /* rock tunnels the enemy jets fly through: a slot cut through both canyon walls at the jet's altitude */
+  const T=[];
+  if(i>0){
+    const n=1+(diff>0.3?1:0)+(r()<diff*0.6?1:0);
+    for(let k=0;k<n;k++){const zOff=160+(k+0.15+0.7*r())*(L-320)/n;T.push({z:-(i*L+zOff),y:4.5+r()*14,dir:r()<0.5?-1:1});}
+  }
+  return {W,C,I,T};
 }
 function getSection(i){let s=sections.get(i);if(!s){s=genSection(i);sections.set(i,s);}return s;}
 const RQ={c:0,w:0,iw:0};
@@ -297,7 +303,7 @@ function riverAt(z){
   RQ.c=lerp(sec.C[k],sec.C[k+1],t);RQ.w=lerp(sec.W[k],sec.W[k+1],t);RQ.iw=lerp(sec.I[k],sec.I[k+1],t);
   return RQ;
 }
-function terrainH(x,z){
+function terrainBase(x,z){
   const q=riverAt(z),c=q.c,w=q.w,iw=q.iw;
   const dx=Math.abs(x-c);
   if(dx<w){
@@ -309,6 +315,15 @@ function terrainH(x,z){
   const H=40+18*n+6*n2+30*smooth(45,130,d)*fbm(x*0.01+7,z*0.01);
   let h=-3+(H+3)*smooth(0,4+4*n2,d);
   return terrace(h);
+}
+/* rock height with the jet tunnels carved in (used for the visible terrain and bullet impacts) */
+const TUN_HALF=4.5,TUN_EDGE=9;
+function terrainH(x,z){
+  const h=terrainBase(x,z);
+  if(h<=-2.9||z>0)return h;
+  const sec=getSection(Math.floor(-z/L));let out=h;
+  for(const t of sec.T){const dz=Math.abs(z-t.z);if(dz<TUN_EDGE){const fl=Math.max(-3,t.y-TUN_HALF);if(out>fl)out=lerp(fl,out,smooth(TUN_HALF,TUN_EDGE,dz));}}
+  return out;
 }
 function terrace(h){
   if(h>2){const t=5.5,k=h/t,fl=Math.floor(k),fr=k-fl;h=lerp(h,t*(fl+Math.pow(fr,3.5)),0.6);}
@@ -401,6 +416,8 @@ const M={
   balloon:std(0xffffff,{map:balloonTex,roughness:0.75,side:THREE.DoubleSide}),
   wicker:std(0x8a5a2b,{roughness:0.95}),
   wood:std(0x6b4a2e,{roughness:0.95}),
+  rock:std(0xa9542b,{roughness:1,flatShading:true}),
+  tunnel:new THREE.MeshBasicMaterial({color:0x140c08,side:THREE.DoubleSide}),
   burner:new THREE.MeshBasicMaterial({color:0xffa040,transparent:true,opacity:0.8,blending:THREE.AdditiveBlending,depthWrite:false}),
   beacon:new THREE.MeshBasicMaterial({color:0xff3b2a})
 };
@@ -490,6 +507,18 @@ function makeBalloon(){
   const burner=cyl(0.22,0.3,0.4,M.grey,10);burner.position.y=1.55;g.add(burner);
   const flame=new THREE.Sprite(new THREE.SpriteMaterial({map:fireTex,blending:THREE.AdditiveBlending,depthWrite:false,transparent:true,color:0xffd28a}));flame.position.y=2.4;flame.scale.set(1.3,2.2,1);g.add(flame);
   g.userData.flame=flame;
+  return g;
+}
+/* rock portal: a slab of cliff with an arched opening, placed on the canyon wall where a jet tunnel exits */
+function makePortal(height,holeBottom){
+  const s=new THREE.Shape();s.moveTo(-11,0);s.lineTo(11,0);s.lineTo(11,height);s.lineTo(-11,height);s.lineTo(-11,0);
+  const h=new THREE.Path(),hw=TUN_HALF+0.3;h.moveTo(-hw,holeBottom);h.lineTo(hw,holeBottom);h.lineTo(hw,holeBottom+hw);h.absarc(0,holeBottom+hw,hw,0,Math.PI,false);h.lineTo(-hw,holeBottom);s.holes.push(h);
+  const g=new THREE.Group();
+  const slab=new THREE.Mesh(new THREE.ExtrudeGeometry(s,{depth:7,bevelEnabled:false,curveSegments:10}),M.rock);g.add(slab);
+  /* dark tunnel throat just behind the opening */
+  const throat=new THREE.Mesh(new THREE.CylinderGeometry(hw*0.98,hw*0.98,7,18,1,true),M.tunnel);
+  throat.rotation.x=Math.PI/2;throat.position.set(0,holeBottom+hw,3.5);g.add(throat);
+  const rim=new THREE.Mesh(new THREE.TorusGeometry(hw+0.5,0.55,6,18,Math.PI),M.stoneDark);rim.position.set(0,holeBottom+hw,-0.1);g.add(rim);
   return g;
 }
 function makeLaunchPad(){
@@ -676,8 +705,10 @@ const AU={ctx:null,muted:false,loops:{},voices:new Map(),
     this.loops.jet=this.mk((a,sr)=>{let la=0,lb=0;for(let i=0;i<a.length;i++){const t=i/sr,w=Math.random()*2-1;la+=(w-la)*0.35;lb+=(w-lb)*0.04;
       a[i]=(la-lb)*1.6+lb*2.2+Math.sin(TAU*2300*t)*0.12+Math.sin(TAU*3460*t)*0.07+Math.sin(TAU*870*t)*0.08;}});
     /* hot-air balloon: propane burner roar in bursts over a soft wind */
-    this.loops.balloon=this.mk((a,sr)=>{let la=0,lb=0,l=0;for(let i=0;i<a.length;i++){const t=i/sr,w=Math.random()*2-1;la+=(w-la)*0.3;lb+=(w-lb)*0.05;l+=(w-l)*0.01;
-      const ph=t%1,on=smooth(0,0.04,ph)*(1-smooth(0.42,0.5,ph));a[i]=((la-lb)*1.8+lb*1.2)*on+Math.sin(TAU*95*t)*0.15*on+l*1.0;}});
+    /* hot-air balloon: deep propane-burner roar (low rumble with a slow flutter) in bursts, soft wind between */
+    this.loops.balloon=this.mk((a,sr)=>{let l1=0,l2=0,l3=0,l4=0;for(let i=0;i<a.length;i++){const t=i/sr,w=Math.random()*2-1;l1+=(w-l1)*0.035;l2+=(l1-l2)*0.09;l3+=(w-l3)*0.006;l4+=(w-l4)*0.012;
+      const ph=t%1,on=smooth(0,0.06,ph)*(1-smooth(0.4,0.52,ph)),flut=0.75+0.25*Math.sin(TAU*9*t);
+      a[i]=(l2*4.2*flut+Math.sin(TAU*58*t+l4*3)*0.32+Math.sin(TAU*87*t)*0.16+Math.sin(TAU*29*t)*0.2)*on+l3*1.4;}});
     this.loops.fuel=this.mk((a,sr)=>{let l=0;for(let i=0;i<a.length;i++){const t=i/sr,w=Math.random()*2-1;l+=(w-l)*0.05;const ph=(t*3)%1;
       a[i]=Math.sin(TAU*100*t)*0.25+Math.sin(TAU*200*t)*0.12+Math.sin(TAU*300*t)*0.08+Math.sin(TAU*55*t)*Math.exp(-ph*7)*0.6+l*1.5*Math.exp(-ph*3);}});
     this.loops.tank=this.mk((a,sr)=>{let l=0;for(let i=0;i<a.length;i++){const t=i/sr,w=Math.random()*2-1;l+=(w-l)*0.05;const ph=(t*16)%1,ph3=(t*28)%1;
@@ -748,6 +779,14 @@ const AU={ctx:null,muted:false,loops:{},voices:new Map(),
       this.noise(tt,0.6,'lowpass',2600,90,0.7,v,bus);this.tone(80+Math.random()*40,22,0.7,'sine',v*1.2,bus,tt-c.currentTime);}
     for(let i=0;i<Math.round(6+size*5);i++){const tt=t0+0.3+Math.random()*L*1.6;this.noise(tt,0.04+Math.random()*0.06,'bandpass',700+Math.random()*2800,400,2,0.25+Math.random()*0.2,bus);}
   },
+  cannon(dist){if(!this.ctx)return;const a=Math.max(0.15,1/(1+Math.pow(dist/120,2))),t=this.ctx.currentTime;
+    this.noise(t,0.25,'lowpass',900,120,0.7,0.8*a);this.tone(85,35,0.35,'sine',0.7*a);this.noise(t,0.05,'highpass',1500,1500,0,0.3*a);},
+  whistle(dist,dur){if(!this.ctx)return;const a=Math.max(0.2,1/(1+Math.pow(dist/90,2))),c=this.ctx,t=c.currentTime,o=c.createOscillator(),g=c.createGain();
+    o.type='sine';o.frequency.setValueAtTime(1500,t);o.frequency.exponentialRampToValueAtTime(420,t+dur);
+    g.gain.setValueAtTime(0.0001,t);g.gain.exponentialRampToValueAtTime(0.09*a,t+dur*0.7);g.gain.exponentialRampToValueAtTime(0.0005,t+dur);o.connect(g);g.connect(this.master);o.start(t);o.stop(t+dur+0.02);},
+  waterSplash(dist){if(!this.ctx)return;const a=Math.max(0.15,1/(1+Math.pow(dist/90,2))),t=this.ctx.currentTime;
+    this.noise(t+0.05,1.6,'bandpass',1400,300,0.6,0.9*a);this.noise(t+0.3,1.4,'lowpass',2500,400,0.5,0.6*a);},
+  restart(){if(!this.ctx)return;const t=this.ctx.currentTime;this.noise(t,0.3,'lowpass',300,900,0.8,0.6);this.tone(90,240,0.8,'sawtooth',0.08);this.tone(200,900,1.2,'triangle',0.05);},
   refuel(level){this.tone(400+level*700,400+level*700,0.07,'triangle',0.05);},
   klaxon(){this.tone(620,600,0.14,'square',0.05);this.tone(440,430,0.14,'square',0.05,null,0.15);},
   life(){[523,659,784,1046].forEach((f,i)=>this.tone(f,f,0.12,'square',0.05,null,i*0.09));},
@@ -869,6 +908,9 @@ const spawned=new Set();
 const keys={left:false,right:false,dive:false,climb:false,faster:false,slower:false,fire:false};
 let PAD={steer:0,pitch:0,thr:0,thrAbs:null,fire:false,start:false,pause:false,cam:false};
 
+const HELI_MARGIN=7.5,JET_SPAN=185;
+/* open water between the canyon walls (and on this side of an island) at depth z, kept `m` units clear of rock */
+function channelBounds(z,x,m){const q=riverAt(z);let lo=q.c-q.w+m,hi=q.c+q.w-m;if(q.iw>0.5){if(x<q.c)hi=Math.min(hi,q.c-q.iw-m);else lo=Math.max(lo,q.c+q.iw+m);}return [lo,hi];}
 /* per-type hit boxes: w/d = half extents on x/z, y0..y1 relative to the object's height */
 const DEF={
   heli:{w:3.4,d:3.4,y0:-1.7,y1:2.1,hp:2,pts:60,snd:'heli',name:'vrtulníkem'},
@@ -876,6 +918,7 @@ const DEF={
   fuel:{w:4.2,d:5.2,y0:-0.8,y1:1.6,hp:2,pts:80,snd:'fuel',solid:false},
   jet:{w:3.2,d:3.4,y0:-0.8,y1:2.2,hp:2,pts:100,snd:'jet',name:'stíhačkou'},
   balloon:{w:3.6,d:3.6,y0:0,y1:11.6,hp:2,pts:60,snd:'balloon',name:'balónem'},
+  portal:{w:0,d:0,y0:0,y1:0,hp:1,pts:0,shoot:false,solid:false},
   lpad:{w:3.6,d:3.6,y0:-0.8,y1:1.2,hp:1,pts:0,shoot:false,crash:'Náraz do startovací plošiny'},
   tank:{w:2.5,d:3,y0:0,y1:3,hp:3,pts:0,snd:'tank',shoot:false,solid:false},
   bridge:{w:60,d:3,y0:-4,y1:29,hp:10,pts:500}
@@ -889,6 +932,7 @@ function addEntity(type,x,z,opt){
   else if(type==='fuel'){e.mesh=makeFuelPad();}
   else if(type==='balloon'){e.mesh=makeBalloon();e.y=0.55;e.vy=0;e.rising=false;e.shadow=makeShadow(3.6,3.6);}
   else if(type==='lpad'){e.mesh=makeLaunchPad();}
+  else if(type==='portal'){e.mesh=opt.mesh;e.yaw=opt.mesh.rotation.y;e.y=opt.mesh.position.y;}
   else if(type==='jet'){e.mesh=makeJet(M.grey,M.red,M.dark);e.mesh.scale.setScalar(0.8);e.y=opt.y||8;e.shadow=makeShadow(3.4,3.0);}
   else if(type==='tank'){e.mesh=makeTank();e.y=opt.y;e.cd=1.5+Math.random()*3;}
   else if(type==='bridge'){e.mesh=makeBridge(opt.tank);e.tank=!!opt.tank;}
@@ -906,7 +950,7 @@ function spawnSection(s){
   let lastFuel=lz-150;
   while(lz<L-90){
     const z=z0-lz,q=riverAt(z),c=q.c,w=q.w,iw=q.iw;
-    const roll=r(),pf=lerp(0.2,0.1,diff),ph=0.42,pj=s>0?lerp(0.06,0.12,diff):0,pb=s>0?lerp(0.07,0.13,diff):0;
+    const roll=r(),pf=lerp(0.2,0.1,diff),ph=0.42,pj=0,pb=s>0?lerp(0.07,0.13,diff):0;
     let type;
     if(lz-lastFuel>300)type='fuel';           /* never more than ~300 units (≈ 6 s) without a fuel pad */
     else if(roll<pf)type='fuel';else if(roll<pf+ph)type='heli';else if(roll<pf+ph+pj)type='jet';else if(roll<pf+ph+pj+pb)type='balloon';else type='ship';
@@ -917,7 +961,7 @@ function spawnSection(s){
     const e=addEntity(type,0,z,{dir,y:y0});
     if(type==='jet'){e.x=c-dir*115;e.vx=dir*lerp(42,60,diff);e.mover=true;e.yaw=dir>0?-Math.PI/2:Math.PI/2;}
     else{
-      const a=lo+e.w+1.2,b=hi-e.w-1.2;
+      const mg=type==='heli'?HELI_MARGIN:type==='ship'?6.2:e.w+1.2,a=lo+mg,b=hi-mg;
       e.lo=a<b?a:(lo+hi)/2;e.hi=a<b?b:(lo+hi)/2;e.x=lerp(e.lo,e.hi,r());
       if(type!=='fuel'&&type!=='balloon'&&e.hi-e.lo>2&&r()<lerp(0.35,0.8,diff)){e.mover=true;e.vx=dir*lerp(7,15,diff)*(0.7+0.6*r());}
       if(type==='ship')e.yaw=(e.mover?e.vx:dir)>0?-Math.PI/2:Math.PI/2;
@@ -932,13 +976,31 @@ function spawnSection(s){
     if(type==='heli'&&r()<lerp(0.25,0.5,diff)){
       const y2=y0>12?3.5+r()*6:15+r()*6;
       const h2=addEntity('heli',0,z-6-r()*8,{y:y2});
-      h2.lo=e.lo;h2.hi=e.hi;h2.x=clamp(e.x+(r()<0.5?-1:1)*(8+r()*6),e.lo,e.hi);
+      const bb=channelBounds(h2.z,e.x,HELI_MARGIN);h2.lo=bb[0];h2.hi=Math.max(bb[0],bb[1]);h2.x=clamp(e.x+(r()<0.5?-1:1)*(8+r()*6),h2.lo,h2.hi);
       if(e.mover){h2.mover=true;h2.vx=-e.vx;}
       h2.mesh.position.x=h2.x;
     }
     lz+=lerp(42,25,diff)*(0.7+0.6*r());
   }
-  const nt=s===0?2:2+Math.floor(r()*3);
+  /* enemy jets: one per tunnel, flying out of the rock on one side and into it on the other */
+  for(const t of getSection(s).T){
+    const q=riverAt(t.z),c=q.c;
+    const e=addEntity('jet',0,t.z,{y:t.y});
+    e.x=c-t.dir*JET_SPAN;e.vx=t.dir*lerp(42,60,diff);e.mover=true;e.yaw=t.dir>0?-Math.PI/2:Math.PI/2;e.mesh.position.x=e.x;e.mesh.rotation.y=e.yaw;
+    for(const side of [-1,1]){
+      /* the face: first point out from the river edge where the uncut rock is above the arch */
+      let x=c+side*q.w;for(let k=0;k<40&&terrainBase(x,t.z)<t.y+TUN_HALF+1;k++)x+=side*0.5;
+      x-=side*0.8;
+      let top=t.y+TUN_HALF+6;
+      for(let dz=-11;dz<=11;dz+=5.5)for(let dx=0;dx<=7;dx+=3.5)top=Math.max(top,terrainBase(x+side*dx,t.z+dz)+2);
+      const bottom=t.y-TUN_HALF-6;
+      const mesh=makePortal(top-bottom,t.y-TUN_HALF-bottom);
+      mesh.rotation.y=side<0?-Math.PI/2:Math.PI/2;      /* extrusion runs from the face into the rock */
+      mesh.position.set(x,bottom,t.z);
+      addEntity('portal',x,t.z,{mesh});
+    }
+  }
+  const nt=1;                                        /* at most one tank per river section */
   for(let t=0;t<nt;t++){
     const z=z0-(90+r()*(L-220)),q=riverAt(z),side=r()<0.5?-1:1,x=q.c+side*(q.w+9+r()*14),y=terrainH(x,z);
     if(y>6)addEntity('tank',x,z,{y});
@@ -948,7 +1010,7 @@ function spawnSection(s){
 function clearWorld(){
   for(const e of entities)removeEnt(e);entities.length=0;
   for(const b of bullets){scene.remove(b.mesh);tracerPool.push(b.mesh);}bullets.length=0;
-  for(const s of shells){scene.remove(s.mesh);s.mesh.material.dispose();}shells.length=0;
+  for(const s of shells){if(s.blast==null){scene.remove(s.mesh);s.mesh.material.dispose();}}shells.length=0;
   spawned.clear();AU.killAll();
 }
 function resetPlayerAt(sec){
@@ -1121,20 +1183,78 @@ function destroy(e){
 }
 
 /* ---------------- tank shells ---------------- */
-function fireShell(e){
-  const sp=new THREE.Sprite(new THREE.SpriteMaterial({map:fireTex,blending:THREE.AdditiveBlending,depthWrite:false,transparent:true,color:0xffdd88}));sp.scale.set(1.6,1.6,1);
-  const sx=e.x,sy=e.y+3,sz=e.z;const dist=Math.hypot(P.x-sx,P.z-sz),t=dist/80;
-  const tx=P.x+P.vx*t*0.6,tz=P.z-P.speed*t,ty=P.y+P.vy*t*0.5;
-  const dx=tx-sx,dy=ty-sy,dz=tz-sz,len=Math.hypot(dx,dy,dz)||1;
-  sp.position.set(sx,sy,sz);scene.add(sp);
-  shells.push({mesh:sp,vx:dx/len*80,vy:dy/len*80,vz:dz/len*80,life:4});
-  explode(sx,sy,sz,0.25);AU.tone(200,60,0.25,'sawtooth',0.06);
+/* Tank artillery. A shell arcs from the canyon rim and lands in the river well ahead of the jet.
+   It always lands well ahead of the jet, so the blast is seen in time to steer around it. Only the blast is lethal. */
+const BLAST_R=8.5,SHELL_LEAD=[55,85];
+/* A tank shells ONE spot over and over: the first shot picks the point, every next shell uses the same
+   point and flight time and is fired one blast-length later, so a new blast starts exactly as the
+   previous one ends and the spot stays deadly until the jet has passed it. */
+const BLAST_T=1.0,BLAST_HOLD=0.15,SHOT_PAUSE=1.0,SAFE_LANE=20;
+/* widest stretch of open water left beside a blast at (tx,tz), islands taken into account */
+function freeLane(tx,tz){
+  const q=riverAt(tz),segs=q.iw>0.5?[[q.c-q.w,q.c-q.iw],[q.c+q.iw,q.c+q.w]]:[[q.c-q.w,q.c+q.w]];
+  const a=tx-BLAST_R-1.6,b=tx+BLAST_R+1.6;let best=0;
+  for(const [l,r] of segs)best=Math.max(best,Math.min(r,a)-l,r-Math.max(l,b));
+  return best;
+}
+function fireShell(e,tgt){
+  let T,tx,tz;
+  if(tgt){T=tgt.T;tx=tgt.tx;tz=tgt.tz;}
+  else{
+    T=1.8+Math.random()*0.5;                            /* flight time, s */
+    const lead=SHELL_LEAD[0]+Math.random()*(SHELL_LEAD[1]-SHELL_LEAD[0]);
+    /* never block a narrows: the blast must leave an open lane of at least SAFE_LANE somewhere at that spot */
+    let ok=false;
+    for(const extra of [0,20,40,-15,60]){
+      tz=P.z-P.speed*T-lead-extra;                      /* well in front of where the jet will be */
+      const q=riverAt(tz);
+      tx=clamp(P.x+P.vx*T*0.5+(Math.random()-0.5)*10,q.c-q.w+BLAST_R*0.6,q.c+q.w-BLAST_R*0.6);
+      if(terrainH(tx,tz)>-0.5){const l=q.c-(q.w+q.iw)/2,r=q.c+(q.w+q.iw)/2;tx=Math.abs(tx-l)<Math.abs(tx-r)?l:r;}
+      if(terrainH(tx,tz)<=-0.5&&freeLane(tx,tz)>=SAFE_LANE){ok=true;break;}
+      for(const cand of [q.c-q.w+BLAST_R*0.6,q.c+q.w-BLAST_R*0.6]){if(terrainH(cand,tz)<=-0.5&&freeLane(cand,tz)>=SAFE_LANE){tx=cand;ok=true;break;}}
+      if(ok)break;
+    }
+    if(!ok)return null;
+  }
+  const sp=new THREE.Sprite(new THREE.SpriteMaterial({map:fireTex,blending:THREE.AdditiveBlending,depthWrite:false,transparent:true,color:0xffd090}));sp.scale.set(2.2,2.2,1);
+  const sx=e.x,sy=e.y+3.5,sz=e.z;sp.position.set(sx,sy,sz);scene.add(sp);
+  shells.push({mesh:sp,sx,sy,sz,tx,tz,T,t:0,apex:28+Math.random()*10,trail:0,whistle:false});
+  explode(sx,sy,sz,0.3);
+  AU.cannon(Math.hypot(sx-P.x,sz-P.z));
+  return {tx,tz,T};
+}
+function waterBlast(x,z){
+  /* tall water column, spray, foam ring and a fireball at the base */
+  for(let i=0;i<34;i++){const s=sprite(smokePool,smokeTex,false,2.7,2.85,3);const a=Math.random()*6.28,r=Math.random()*3;
+    addPart(s,x+Math.cos(a)*r,0.5,z+Math.sin(a)*r,Math.cos(a)*(2+Math.random()*5),18+Math.random()*22,Math.sin(a)*(2+Math.random()*5),1.2+Math.random()*0.9,2.5,8+Math.random()*6,-22);}
+  for(let i=0;i<16;i++){const s=sprite(smokePool,smokeTex,false,2.5,2.7,2.9);const a=Math.random()*6.28,v=10+Math.random()*10;
+    addPart(s,x,0.6,z,Math.cos(a)*v,3+Math.random()*4,Math.sin(a)*v,1.0+Math.random()*0.6,2,7,-6);}
+  explode(x,1.2,z,1.3,M.dark);
 }
 function updateShells(dt){
-  for(let i=shells.length-1;i>=0;i--){const s=shells[i];s.life-=dt;const p=s.mesh.position;p.x+=s.vx*dt;p.y+=s.vy*dt;p.z+=s.vz*dt;
-    if(mode==='play'&&Math.hypot(p.x-P.x,p.y-P.y,p.z-P.z)<2.6){crash('Zásah z tanku');s.life=0;}
-    if(p.y<0.2){splash(p.x,p.z);s.life=0;}
-    if(s.life<=0){scene.remove(s.mesh);s.mesh.material.dispose();shells.splice(i,1);}}
+  for(let i=shells.length-1;i>=0;i--){
+    const s=shells[i];
+    if(s.blast!=null){
+      /* the blast is lethal for a moment: a column BLAST_R wide reaching above the flight ceiling */
+      s.blast+=dt;
+      const k=s.blast;
+      if(mode==='play'&&k<BLAST_T+BLAST_HOLD&&Math.hypot(P.x-s.tx,P.z-s.tz)<BLAST_R+1.6&&P.y<4+26*Math.min(1,k/0.25)){crash('Zásah výbuchem granátu');}
+      if(k>BLAST_T+BLAST_HOLD){shells.splice(i,1);}
+      continue;
+    }
+    s.t+=dt;const u=Math.min(1,s.t/s.T);
+    const x=lerp(s.sx,s.tx,u),z=lerp(s.sz,s.tz,u),y=lerp(s.sy,0,u)+s.apex*4*u*(1-u);
+    s.mesh.position.set(x,y,z);
+    s.trail-=dt;if(s.trail<=0){s.trail=0.05;const sm=sprite(smokePool,smokeTex,false,1.4,1.35,1.3);addPart(sm,x,y,z,0,0.5,0,0.9,1,3.2,0);}
+    if(!s.whistle&&s.T-s.t<1.1){s.whistle=true;AU.whistle(Math.hypot(s.tx-P.x,s.tz-P.z),1.1);}
+    if(u>=1){
+      scene.remove(s.mesh);s.mesh.material.dispose();
+      waterBlast(s.tx,s.tz);
+      const d=Math.hypot(s.tx-P.x,s.tz-P.z);AU.boom(1.7,d);AU.waterSplash(d);
+      shake=Math.max(shake,1.2*(1-Math.min(d,120)/120));
+      s.blast=0;
+    }
+  }
 }
 
 /* ---------------- entities ---------------- */
@@ -1152,9 +1272,15 @@ function updateEntities(dt){
     const m=e.mesh;e.velx=0;
     if(e.mover&&ahead<(e.type==='jet'?280:150)){
       e.x+=e.vx*dt;e.velx=e.vx;
-      if(e.type==='jet'){const c=riverAt(e.z).c;if(e.vx>0&&e.x>c+125)e.x=c-125;if(e.vx<0&&e.x<c-125)e.x=c+125;}
+      if(e.type==='jet'){const c=riverAt(e.z).c;if(e.vx>0&&e.x>c+JET_SPAN)e.x=c-JET_SPAN;if(e.vx<0&&e.x<c-JET_SPAN)e.x=c+JET_SPAN;}
       else{if(e.x>e.hi){e.x=e.hi;e.vx=-Math.abs(e.vx);}if(e.x<e.lo){e.x=e.lo;e.vx=Math.abs(e.vx);}}
       if(e.type!=='fuel'&&e.type!=='tank'){const ty=e.vx>0?-Math.PI/2:Math.PI/2;let d=ty-e.yaw;while(d>Math.PI)d-=Math.PI*2;while(d<-Math.PI)d+=Math.PI*2;e.yaw+=d*Math.min(1,dt*(e.type==='ship'?2:5));}
+    }
+    if(e.type==='heli'||e.type==='ship'){
+      const bb=channelBounds(e.z,e.x,e.type==='heli'?HELI_MARGIN:6.2);
+      if(bb[0]>bb[1])e.x=(bb[0]+bb[1])/2;
+      else if(e.x<bb[0]){e.x=bb[0];if(e.mover)e.vx=Math.abs(e.vx);}
+      else if(e.x>bb[1]){e.x=bb[1];if(e.mover)e.vx=-Math.abs(e.vx);}
     }
     m.position.x=e.x;m.rotation.y=e.yaw;
     if(e.type==='heli'){e.cy=clamp(e.y+Math.sin(time*e.fq+e.phase)*e.amp+Math.sin(time*2+e.phase)*0.3,3,21.2);m.position.y=e.cy;m.userData.rotor.rotation.y+=dt*28;m.userData.tail.rotation.x+=dt*40;m.rotation.z=e.mover?-e.vx*0.02:0;}
@@ -1162,14 +1288,32 @@ function updateEntities(dt){
     else if(e.type==='fuel'){const on=(time*1.5+e.phase)%1<0.5;for(const b of m.userData.beacons)b.visible=on;m.position.y=Math.sin(time*1.1+e.phase)*0.06;}
     else if(e.type==='balloon'){
       if(!e.rising&&ahead<e.trigger)e.rising=true;
-      if(e.rising){e.vy=Math.min(e.vy+dt*0.9,e.vmax);e.y+=e.vy*dt;e.x+=e.drift*dt;e.velx=e.drift;}
+      if(e.rising){
+        e.vy=Math.min(e.vy+dt*0.9,e.vmax);e.y+=e.vy*dt;e.x+=e.drift*dt;e.velx=e.drift;
+        /* keep the envelope (radius ≈3.6) clear of canyon walls and islands */
+        const q=riverAt(e.z),M5=5.5;let lo=q.c-q.w+M5,hi=q.c+q.w-M5;
+        if(q.iw>0.5){if(e.x<q.c)hi=Math.min(hi,q.c-q.iw-M5);else lo=Math.max(lo,q.c+q.iw+M5);}
+        if(lo>hi){e.x=(lo+hi)/2;e.drift=0;}
+        else if(e.x<lo){e.x=lo;e.drift=Math.abs(e.drift)*0.5;}
+        else if(e.x>hi){e.x=hi;e.drift=-Math.abs(e.drift)*0.5;}
+      }
       e.cy=e.y;m.position.y=e.y;m.position.x=e.x;m.rotation.y+=dt*0.15;
       const burn=(time*0.5+e.phase)%1<0.45;m.userData.flame.visible=burn;if(burn)m.userData.flame.scale.set(1.1+Math.random()*0.4,1.8+Math.random()*0.9,1);
     }
     else if(e.type==='jet'){m.rotation.z=-e.vx*0.006;m.userData.burner.scale.set(1,0.8+Math.random()*0.4,1);}
     else if(e.type==='tank'){
       const tur=m.userData.turret;tur.rotation.y=Math.atan2(-(P.x-e.x),-(P.z-e.z));
-      if(mode==='play'&&sec>=1&&ahead>40&&ahead<230){e.cd-=dt;if(e.cd<=0){e.cd=lerp(4.5,2.4,clamp(sec/10,0,1))+Math.random()*2;fireShell(e);}}
+      if(mode==='play'&&sec>=1){
+        if(e.barrage){
+          /* keep pounding the same spot until the jet is past it */
+          if(P.z<e.barrage.tz-12){e.barrage=null;e.cd=lerp(5,3,clamp(sec/10,0,1))+Math.random()*2;}
+          else{e.cd-=dt;if(e.cd<=0){e.cd+=BLAST_T+BLAST_HOLD+SHOT_PAUSE;fireShell(e,e.barrage);}}
+        }else if(ahead>60&&ahead<260){
+          e.cd-=dt;
+          if(e.cd<=0){let n=0;for(const t of entities)if(t.barrage)n++;
+            if(n<1){const t=fireShell(e);if(t){e.barrage=t;e.cd=BLAST_T+BLAST_HOLD+SHOT_PAUSE;}else e.cd=1;}else e.cd=1;}
+        }
+      }
     }
     if(e.shadow){const h=terrainH(e.x,e.z);e.shadow.visible=h<0;e.shadow.position.set(e.x,0.08,e.z);e.shadow.material.opacity=Math.max(0,0.38*(1-e.cy/30));}
   }
@@ -1227,16 +1371,20 @@ function updatePlayer(dt){
   if(P.y<YFLOOR){crash(P.engineOut?'Došlo palivo · pád do vody':'Náraz do vody');return;}
   /* canyon walls and islands: crash when any part of the wings meets the rock */
   for(const ox of [-2.2,0,2.2]){
-    const h=terrainH(P.x+ox,P.z);
+    const h=terrainBase(P.x+ox,P.z);
     if(P.y-0.45<h){const q=riverAt(P.z),dx=Math.abs(P.x+ox-q.c);crash(q.iw>0&&dx<q.iw+2?'Náraz do ostrova':'Náraz do skály');return;}
   }
   for(const e of entities){
-    if(!e.alive||e.type==='tank')continue;
+    if(!e.alive||e.type==='tank'||e.type==='portal')continue;
     if(e.type==='bridge'){if(Math.abs(P.z-e.z)<e.d+2){crash('Náraz do mostu');return;}continue;}
     if(e.type==='fuel'){if(Math.abs(P.x-e.x)<e.w+1&&Math.abs(P.z-e.z)<e.d+1.5){if(P.y-0.6<e.cy+e.y1){destroy(e);crash('Náraz do tankovací plošiny');return;}refueling=true;}continue;}
     if(Math.abs(P.x-e.x)<e.w+2&&Math.abs(P.z-e.z)<e.d+2.5&&P.y+0.6>e.cy+e.y0&&P.y-0.6<e.cy+e.y1){if(e.type!=='lpad')destroy(e);crash(e.crashMsg||('Srážka s '+e.name));return;}
   }
-  if(refueling&&P.fuel<1&&!P.engineOut){P.fuel=Math.min(1,P.fuel+dt*0.85);refuelCd-=dt;if(refuelCd<=0){refuelCd=0.09;AU.refuel(P.fuel);}}
+  if(refueling&&P.engineOut){
+    P.fuel=Math.min(1,P.fuel+dt*0.85);
+    if(P.fuel>0.08){P.engineOut=false;P.fallV=0;P.target=Math.max(45,P.target);AU.restart();msg('Motor naskočil<small>Vytáhni letadlo nahoru</small>');setTimeout(()=>{if(mode==='play'&&!P.engineOut)msg('');},1800);}
+  }
+  else if(refueling&&P.fuel<1){P.fuel=Math.min(1,P.fuel+dt*0.85);refuelCd-=dt;if(refuelCd<=0){refuelCd=0.09;AU.refuel(P.fuel);}}
   else if(P.fuel<0.25&&!P.engineOut){klaxonCd-=dt;if(klaxonCd<=0){klaxonCd=0.6;AU.klaxon();}}
 }
 
@@ -1387,7 +1535,7 @@ function drawRadar(g,x0,y0,w,h){
   /* contacts: filled when at your altitude, hollow when above or below */
   g.font='bold 10px Chakra Petch, monospace';g.textAlign='center';g.textBaseline='middle';
   for(const e of entities){
-    if(!e.alive||e.type==='lpad'||e.type==='tank')continue;const a=P.z-e.z;if(a<-15||a>RANGE)continue;
+    if(!e.alive||e.type==='lpad'||e.type==='tank'||e.type==='portal')continue;const a=P.z-e.z;if(a<-15||a>RANGE)continue;
     const x=X(e.x),y=Y(e.z);
     if(e.type==='bridge'){g.strokeStyle='#ffffff';g.lineWidth=3;g.beginPath();g.moveTo(x0,y);g.lineTo(x0+w,y);g.stroke();continue;}
     const level=Math.abs((e.cy+(e.y0+e.y1)/2)-P.y)<(e.y1-e.y0)/2+1.5;
