@@ -1,4 +1,5 @@
-yaml
+# Udržuje projekt Supabase aktivní: každé 3 dny přečte jeden řádek žebříčku.
+# Adresu a klíč bere ze souboru config.js (pokud je hra v podsložce, uprav CONFIG níže).
 name: Supabase keepalive
 
 on:
