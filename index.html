@@ -97,6 +97,9 @@ h1 em{font-style:normal;color:var(--ink);font-size:.42em;vertical-align:.95em;ma
 #entryName{width:9ch;font-family:var(--display);font-size:22px;letter-spacing:.12em;text-transform:uppercase;text-align:center;color:var(--ink);background:rgba(5,12,24,.8);border:2px solid var(--hud);border-radius:3px;padding:6px 8px;user-select:text;-webkit-user-select:text}
 #entryName:focus-visible{outline:2px solid var(--orange);outline-offset:2px}
 .btn.sm{font-size:16px;padding:9px 18px}
+.btn.ghost{background:transparent;color:var(--ink);box-shadow:inset 0 0 0 2px var(--hud-dim)}
+.btn.ghost:active{box-shadow:inset 0 0 0 2px var(--hud)}
+.entry-hint{font-size:11px;letter-spacing:.06em;color:#8fa2bd}
 .board-wrap{min-width:0;overflow-x:auto}
 .board{width:100%;border-collapse:collapse;font-size:14px;font-variant-numeric:tabular-nums}
 .board caption{font-family:var(--display);font-size:15px;letter-spacing:.08em;color:var(--orange);padding-bottom:6px}
@@ -190,7 +193,7 @@ body.cockpit .fuelbox,body.cockpit .alt{display:none}
       </dl>
       <div class="points"><span>Tanker <b>30</b></span><span>Vrtulník <b>60</b></span><span>Palivo <b>80</b></span><span>Balón <b>60</b></span><span>Stíhačka <b>100</b></span><span>Most <b>500</b></span><span>Tank na mostě <b>+250</b></span></div>
       <button class="btn" id="btnStart" type="button">Vzlétnout</button>
-      <div class="foot">Nový život za každých 10 000 bodů · Rekord <span id="best">0</span><br><span id="padInfo">Joystick: připoj ho a stiskni na něm libovolné tlačítko</span></div>
+      <div class="foot">Nový život za každých 10 000 bodů · Rekord <span id="best">0</span><br><span id="boardInfo">Žebříček: zjišťuji…</span><br><span id="padInfo">Joystick: připoj ho a stiskni na něm libovolné tlačítko</span></div>
     </div>
     <div class="stripes bottom"></div>
   </div>
@@ -204,7 +207,8 @@ body.cockpit .fuelbox,body.cockpit .alt{display:none}
       <div class="over-head"><div class="big-score" id="overScore">0</div><div class="row"><span>Zbořené mosty <b id="overBridges">0</b></span></div></div>
       <form id="entry" hidden autocomplete="off">
         <label for="entryName" id="entryLabel">Jsi v žebříčku! Napiš své jméno (max. 7 znaků)</label>
-        <div class="entry-row"><input id="entryName" name="entryName" type="text" maxlength="7" spellcheck="false" autocapitalize="characters"><button class="btn sm" type="submit">Zapsat</button></div>
+        <div class="entry-hint">Enter = zapsat · Esc = neukládat</div>
+        <div class="entry-row"><input id="entryName" name="entryName" type="text" maxlength="7" spellcheck="false" autocapitalize="characters"><button class="btn sm" type="submit">Zapsat</button><button class="btn sm ghost" type="button" id="btnSkip">Neukládat</button></div>
       </form>
       <p class="board-note" id="boardNote" hidden></p>
       <div class="board-wrap">
@@ -237,14 +241,8 @@ body.cockpit .fuelbox,body.cockpit .alt{display:none}
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-<script>
-/* ===== SPOLEČNÝ ŽEBŘÍČEK (Supabase) =====
-   Vlož adresu projektu a veřejný klíč (anon / publishable) z Supabase:
-   Project Settings → API (nebo tlačítko Connect). Když necháš prázdné,
-   žebříček se ukládá jen v prohlížeči hráče. */
-const SUPABASE_URL = '';   // např. 'https://abcdefghijkl.supabase.co'
-const SUPABASE_KEY = '';   // např. 'sb_publishable_...' nebo dlouhý klíč začínající 'eyJ...'
-</script>
+<!-- Nastavení společného žebříčku je v souboru config.js ve stejné složce (při aktualizaci hry se nepřepisuje). -->
+<script src="config.js"></script>
 <script>
 (function(){
 'use strict';
@@ -376,6 +374,30 @@ waterTex.wrapS=waterTex.wrapT=THREE.RepeatWrapping;waterTex.repeat.set(30,80);
 const fireTex=canvasTex(64,64,(g)=>{const gr=g.createRadialGradient(32,32,0,32,32,32);gr.addColorStop(0,'rgba(255,255,230,1)');gr.addColorStop(0.25,'rgba(255,200,80,1)');gr.addColorStop(0.55,'rgba(240,90,20,0.75)');gr.addColorStop(1,'rgba(120,20,0,0)');g.fillStyle=gr;g.fillRect(0,0,64,64);});
 const smokeTex=canvasTex(64,64,(g)=>{const gr=g.createRadialGradient(32,32,0,32,32,32);gr.addColorStop(0,'rgba(70,64,60,0.85)');gr.addColorStop(0.6,'rgba(60,56,54,0.4)');gr.addColorStop(1,'rgba(50,50,50,0)');g.fillStyle=gr;g.fillRect(0,0,64,64);});
 const balloonTex=canvasTex(256,8,(g,w,h)=>{const cols=['#d2261c','#f4efe2','#f2b01d','#1f5fae'];const n=16;for(let i=0;i<n;i++){g.fillStyle=cols[i%4];g.fillRect(Math.floor(i*w/n),0,Math.ceil(w/n)+1,h);}});
+/* ashlar masonry: staggered sandstone blocks with mortar joints (tiles every 11 world units) */
+const bridgeTex=canvasTex(256,256,(g,w,h)=>{
+  const r=mulberry32(77);g.fillStyle='#6e5238';g.fillRect(0,0,w,h);
+  const rows=8,rh=h/rows;
+  for(let y=0;y<rows;y++){let x=-(y%2)*28-r()*10;
+    while(x<w){const bw=44+r()*40,t=r();
+      const R0=196+t*40|0,G0=150+t*34|0,B0=100+t*28|0;
+      for(const ox of [0,-w,w]){g.fillStyle='rgb('+R0+','+G0+','+B0+')';g.fillRect(x+ox+2,y*rh+2,bw-3,rh-3);
+        g.fillStyle='rgba(255,240,210,.18)';g.fillRect(x+ox+2,y*rh+2,bw-3,3);g.fillStyle='rgba(60,35,15,.22)';g.fillRect(x+ox+2,y*rh+rh-4,bw-3,3);}
+      x+=bw;}}
+  for(let i=0;i<2600;i++){g.fillStyle='rgba('+(r()<0.5?'40,25,10':'255,235,200')+','+(0.05+r()*0.12)+')';g.fillRect(r()*w,r()*h,1+r()*2,1+r()*2);}
+});
+bridgeTex.wrapS=bridgeTex.wrapT=THREE.RepeatWrapping;bridgeTex.repeat.set(1/11,1/11);
+/* canyon rock: warm sandstone strata with cracks (tiles every 16 world units) */
+const rockTex=canvasTex(256,256,(g,w,h)=>{
+  const r=mulberry32(19),cols=['#9c4a26','#b8622f','#c97a43','#8a3f22','#d49158','#a8552a'];
+  let y=0;while(y<h){const bh=8+r()*26;g.fillStyle=cols[(r()*cols.length)|0];g.fillRect(0,y,w,bh+1);y+=bh;}
+  for(let i=0;i<3500;i++){g.fillStyle='rgba('+(r()<0.5?'50,20,8':'255,220,170')+','+(0.05+r()*0.15)+')';g.fillRect(r()*w,r()*h,1+r()*3,1+r()*2);}
+  g.strokeStyle='rgba(45,18,6,.55)';g.lineWidth=1.5;
+  for(let i=0;i<18;i++){let x=r()*w,yy=r()*h;g.beginPath();g.moveTo(x,yy);for(let k=0;k<5;k++){x+=(r()-0.5)*18;yy+=6+r()*12;g.lineTo(x,yy);}g.stroke();}
+});
+rockTex.wrapS=rockTex.wrapT=THREE.RepeatWrapping;rockTex.repeat.set(1/16,1/16);
+/* yellow and black warning chevrons above the tunnel mouth */
+const hazardTex=canvasTex(256,32,(g,w,h)=>{g.fillStyle='#f2b01d';g.fillRect(0,0,w,h);g.fillStyle='#16130f';for(let x=-32;x<w+32;x+=32){g.beginPath();g.moveTo(x,h);g.lineTo(x+16,0);g.lineTo(x+32,0);g.lineTo(x+16,h);g.closePath();g.fill();}});
 const padTex=canvasTex(256,320,(g,w,h)=>{
   g.lineWidth=13;
   for(let k=-340;k<620;k+=26){g.strokeStyle=((k/26)&1)?'#d2261c':'#f1efe8';g.beginPath();g.moveTo(k,0);g.lineTo(k+320,320);g.stroke();}
@@ -405,6 +427,11 @@ const M={
   hull:std(0x7a2a21,{roughness:0.7}),
   deck:std(0x8a8c86,{roughness:0.85}),
   stone:std(0xcfa476,{roughness:0.95,flatShading:true}),
+  masonry:std(0xffffff,{map:bridgeTex,roughness:0.95}),
+  masonryDark:std(0xb8987a,{map:bridgeTex,roughness:1}),
+  concrete:std(0x8e9296,{roughness:0.9}),
+  hazard:std(0xffffff,{map:hazardTex,roughness:0.7}),
+  tunnelLamp:new THREE.MeshBasicMaterial({color:0xffc46a}),
   stoneDark:std(0x8f6544,{roughness:1}),
   road:std(0x3a3631,{roughness:1}),
   olive:std(0x5d6139,{roughness:0.85}),
@@ -416,8 +443,8 @@ const M={
   balloon:std(0xffffff,{map:balloonTex,roughness:0.75,side:THREE.DoubleSide}),
   wicker:std(0x8a5a2b,{roughness:0.95}),
   wood:std(0x6b4a2e,{roughness:0.95}),
-  rock:std(0xa9542b,{roughness:1,flatShading:true}),
-  tunnel:new THREE.MeshBasicMaterial({color:0x140c08,side:THREE.DoubleSide}),
+  rock:std(0xffffff,{map:rockTex,roughness:1,flatShading:true}),
+  tunnel:new THREE.MeshBasicMaterial({color:0x0b0705,side:THREE.DoubleSide}),
   burner:new THREE.MeshBasicMaterial({color:0xffa040,transparent:true,opacity:0.8,blending:THREE.AdditiveBlending,depthWrite:false}),
   beacon:new THREE.MeshBasicMaterial({color:0xff3b2a})
 };
@@ -428,6 +455,13 @@ function makeShadow(sx,sz){const m=new THREE.Mesh(shadowGeo,new THREE.MeshBasicM
 
 /* ---------------- 3D models ---------------- */
 function shapeMesh(pts,depth,mat){const s=new THREE.Shape();s.moveTo(pts[0][0],pts[0][1]);for(let i=1;i<pts.length;i++)s.lineTo(pts[i][0],pts[i][1]);return new THREE.Mesh(new THREE.ExtrudeGeometry(s,{depth,bevelEnabled:false}),mat);}
+function worldUV(geo,w,h,d){
+  const uv=geo.attributes&&geo.attributes.uv;if(!uv)return geo;
+  const dims=[[d,h],[d,h],[w,d],[w,d],[w,h],[w,h]];
+  for(let f=0;f<6;f++)for(let k=0;k<4;k++){const i=f*4+k;uv.setXY(i,uv.getX(i)*dims[f][0],uv.getY(i)*dims[f][1]);}
+  uv.needsUpdate=true;return geo;
+}
+function tbox(w,h,d,mat,x,y,z){const m=new THREE.Mesh(worldUV(new THREE.BoxGeometry(w,h,d),w,h,d),mat);m.position.set(x||0,y||0,z||0);return m;}
 function box(w,h,d,mat,x,y,z){const m=new THREE.Mesh(new THREE.BoxGeometry(w,h,d),mat);m.position.set(x||0,y||0,z||0);return m;}
 function cyl(rt,rb,h,mat,seg){return new THREE.Mesh(new THREE.CylinderGeometry(rt,rb,h,seg||14),mat);}
 
@@ -510,15 +544,30 @@ function makeBalloon(){
   return g;
 }
 /* rock portal: a slab of cliff with an arched opening, placed on the canyon wall where a jet tunnel exits */
-function makePortal(height,holeBottom){
-  const s=new THREE.Shape();s.moveTo(-11,0);s.lineTo(11,0);s.lineTo(11,height);s.lineTo(-11,height);s.lineTo(-11,0);
-  const h=new THREE.Path(),hw=TUN_HALF+0.3;h.moveTo(-hw,holeBottom);h.lineTo(hw,holeBottom);h.lineTo(hw,holeBottom+hw);h.absarc(0,holeBottom+hw,hw,0,Math.PI,false);h.lineTo(-hw,holeBottom);s.holes.push(h);
+function makePortal(height,holeBottom,seed){
+  /* rock slab with a ragged outline, a concrete arch frame, warning chevrons, lamps inside and a dark end so the jet bursts out of darkness */
+  const r=mulberry32(seed||1),hw=TUN_HALF+0.3;
+  const s=new THREE.Shape();
+  s.moveTo(-12,0);s.lineTo(12,0);
+  for(let k=1;k<=5;k++)s.lineTo(12+(r()-0.5)*3,height*k/5*0.92);
+  for(let k=1;k<=7;k++)s.lineTo(12-24*k/8,height-r()*3.5);
+  for(let k=5;k>=1;k--)s.lineTo(-12+(r()-0.5)*3,height*k/5*0.92);
+  s.lineTo(-12,0);
+  const hole=()=>{const p=new THREE.Path();p.moveTo(-hw,holeBottom);p.lineTo(hw,holeBottom);p.lineTo(hw,holeBottom+hw);p.absarc(0,holeBottom+hw,hw,0,Math.PI,false);p.lineTo(-hw,holeBottom);return p;};
+  s.holes.push(hole());
   const g=new THREE.Group();
-  const slab=new THREE.Mesh(new THREE.ExtrudeGeometry(s,{depth:7,bevelEnabled:false,curveSegments:10}),M.rock);g.add(slab);
-  /* dark tunnel throat just behind the opening */
-  const throat=new THREE.Mesh(new THREE.CylinderGeometry(hw*0.98,hw*0.98,7,18,1,true),M.tunnel);
-  throat.rotation.x=Math.PI/2;throat.position.set(0,holeBottom+hw,3.5);g.add(throat);
-  const rim=new THREE.Mesh(new THREE.TorusGeometry(hw+0.5,0.55,6,18,Math.PI),M.stoneDark);rim.position.set(0,holeBottom+hw,-0.1);g.add(rim);
+  g.add(new THREE.Mesh(new THREE.ExtrudeGeometry(s,{depth:7,bevelEnabled:false,curveSegments:12}),M.rock));
+  /* concrete frame: an arch band standing 0.8 proud of the rock */
+  const fo=hw+1.3,fr=new THREE.Shape();fr.moveTo(-fo,holeBottom);fr.lineTo(fo,holeBottom);fr.lineTo(fo,holeBottom+hw);fr.absarc(0,holeBottom+hw,fo,0,Math.PI,false);fr.lineTo(-fo,holeBottom);
+  fr.holes.push(hole());
+  const frame=new THREE.Mesh(new THREE.ExtrudeGeometry(fr,{depth:1.4,bevelEnabled:true,bevelThickness:0.15,bevelSize:0.15,bevelSegments:1,curveSegments:14}),M.concrete);frame.position.z=-0.8;g.add(frame);
+  const band=new THREE.Mesh(new THREE.PlaneGeometry(fo*2,0.9),M.hazard);band.position.set(0,holeBottom+hw+fo+0.75,-0.82);band.rotation.y=Math.PI;g.add(band);
+  /* lamps along the tunnel roof */
+  for(const z of [1.2,3.4,5.6]){const l=new THREE.Mesh(new THREE.BoxGeometry(0.5,0.16,0.3),M.tunnelLamp);l.position.set(0,holeBottom+hw*2-0.35,z);g.add(l);
+    const glow=new THREE.Sprite(new THREE.SpriteMaterial({map:fireTex,color:0xffb04a,blending:THREE.AdditiveBlending,depthWrite:false,transparent:true,opacity:0.55}));glow.position.copy(l.position);glow.position.y-=0.3;glow.scale.set(1.8,1.2,1);g.add(glow);}
+  /* the tunnel's far end: darkness */
+  const endShape=new THREE.Shape();endShape.moveTo(-hw,holeBottom);endShape.lineTo(hw,holeBottom);endShape.lineTo(hw,holeBottom+hw);endShape.absarc(0,holeBottom+hw,hw,0,Math.PI,false);endShape.lineTo(-hw,holeBottom);
+  const end=new THREE.Mesh(new THREE.ShapeGeometry(endShape,12),M.tunnel);end.position.z=6.9;g.add(end);
   return g;
 }
 function makeLaunchPad(){
@@ -546,16 +595,19 @@ const bayGeo=(function(){
   const h2=new THREE.Path();h2.moveTo(3.4,6.4);h2.lineTo(6.6,6.4);h2.lineTo(6.6,9.4);h2.absarc(5,9.4,1.6,0,Math.PI,false);h2.lineTo(3.4,6.4);s.holes.push(h2);
   const g=new THREE.ExtrudeGeometry(s,{depth:5,bevelEnabled:false,curveSegments:10});g.translate(-5,0,-2.5);return g;
 })();
+const archRingGeo=new THREE.TorusGeometry(3.45,0.32,5,16,Math.PI);
 function makeBridge(withTank){
   const g=new THREE.Group(),bays=[];
   for(let b=-4;b<4;b++){
     const bay=new THREE.Group();bay.position.x=b*10+5;
-    bay.add(new THREE.Mesh(bayGeo,M.stone));
-    bay.add(box(3.3,3.4,0.5,M.stoneDark,0,8.2,0));
+    bay.add(new THREE.Mesh(bayGeo,M.masonry));
+    bay.add(tbox(3.3,3.4,0.5,M.masonryDark,0,8.2,0));
     bay.add(box(10,0.5,5.6,M.road,0,14.25,0));
-    bay.add(box(10,0.9,0.4,M.stone,0,14.9,2.6));
-    bay.add(box(10,0.9,0.4,M.stone,0,14.9,-2.6));
-    bay.add(box(10.2,0.5,5.4,M.stone,0,13.0,0));
+    bay.add(tbox(10,0.9,0.4,M.masonryDark,0,14.9,2.6));
+    bay.add(tbox(10,0.9,0.4,M.masonryDark,0,14.9,-2.6));
+    bay.add(tbox(10.2,0.5,5.4,M.masonryDark,0,13.0,0));
+    /* arch ring of darker voussoirs on both faces */
+    for(const zf of [2.55,-2.55]){const ring=new THREE.Mesh(archRingGeo,M.masonryDark);ring.position.set(0,1.0,zf);bay.add(ring);}
     bay.scale.y=1.75;g.add(bay);bays.push(bay);
   }
   let tank=null;
@@ -788,7 +840,11 @@ const AU={ctx:null,muted:false,loops:{},voices:new Map(),
     this.noise(t+0.05,1.6,'bandpass',1400,300,0.6,0.9*a);this.noise(t+0.3,1.4,'lowpass',2500,400,0.5,0.6*a);},
   restart(){if(!this.ctx)return;const t=this.ctx.currentTime;this.noise(t,0.3,'lowpass',300,900,0.8,0.6);this.tone(90,240,0.8,'sawtooth',0.08);this.tone(200,900,1.2,'triangle',0.05);},
   refuel(level){this.tone(400+level*700,400+level*700,0.07,'triangle',0.05);},
-  klaxon(){this.tone(620,600,0.14,'square',0.05);this.tone(440,430,0.14,'square',0.05,null,0.15);},
+  /* low-fuel alarm: a clear two-tone cockpit warning, faster and higher when the tank is nearly empty */
+  lowFuel(critical){
+    if(!this.ctx)return;const f=critical?[1180,880,1180]:[880,660],v=critical?0.16:0.13;
+    f.forEach((fr,i)=>{this.tone(fr,fr,0.11,'square',v,null,i*0.13);this.tone(fr*2,fr*2,0.11,'sine',v*0.35,null,i*0.13);});
+  },
   life(){[523,659,784,1046].forEach((f,i)=>this.tone(f,f,0.12,'square',0.05,null,i*0.09));},
   horn(rate,gain,pan){
     if(!this.ctx)return;const c=this.ctx,t=c.currentTime,dest=this.out(pan),g=c.createGain(),f=c.createBiquadFilter();f.type='lowpass';f.frequency.value=900;
@@ -823,7 +879,19 @@ localBoard=sortBoard(localBoard).slice(0,10);board=localBoard;
 if(board.length)best=Math.max(best,board[0].s);
 function saveLocal(){try{localStorage.setItem(BOARD_KEY,JSON.stringify(localBoard));}catch(e){}}
 function qualifies(sc){return sc>0&&(board.length<10||sc>board[board.length-1].s);}
+function boardInfo(){
+  const el=$('boardInfo');if(!el)return;let t,ok=false;
+  if(provider==='db'){t=boardState==='shared'?'Žebříček: společný (claude.ai)':'Žebříček: jen v tomto prohlížeči';ok=boardState==='shared';}
+  else if(provider==='sb'){
+    if(boardState==='shared'){t='Žebříček: společný online ✓';ok=true;}
+    else if(boardState==='loading')t='Žebříček: připojuji se k serveru…';
+    else t='Žebříček: server nedostupný, výsledky se ukládají jen v tomto prohlížeči';
+  }
+  else t=CFG_STATE==='nofile'?'Žebříček: jen v tomto prohlížeči (chybí soubor config.js)':'Žebříček: jen v tomto prohlížeči (v config.js chybí adresa nebo klíč)';
+  el.textContent=t;el.className=ok?'pad-on':'';
+}
 function renderBoard(){
+  boardInfo();
   $('boardCap').textContent={shared:'Společný žebříček · 10 nejlepších',loading:'Společný žebříček se načítá…',stale:'Společný žebříček se zatím nepodařilo načíst',local:'Žebříček v tomto prohlížeči · 10 nejlepších',offline:'Společný žebříček je teď nedostupný · místní výsledky'}[boardState];
   const tb=$('boardBody');tb.textContent='';
   for(let i=0;i<10;i++){
@@ -855,7 +923,9 @@ function connectShared(){
   return true;
 }
 /* Supabase: plain REST calls, the table only allows reading and adding rows */
-const SB=(typeof SUPABASE_URL==='string'&&SUPABASE_URL&&typeof SUPABASE_KEY==='string'&&SUPABASE_KEY)?{url:SUPABASE_URL.trim().replace(/\/+$/,''),key:SUPABASE_KEY.trim()}:null;
+const CFG=(window.RR_CONFIG&&typeof window.RR_CONFIG==='object')?window.RR_CONFIG:{};
+const SB=(typeof CFG.supabaseUrl==='string'&&/^https:\/\//.test(CFG.supabaseUrl.trim())&&typeof CFG.supabaseKey==='string'&&CFG.supabaseKey.trim().length>20&&!/^SEM_/.test(CFG.supabaseKey.trim()))?{url:CFG.supabaseUrl.trim().replace(/\/+$/,''),key:CFG.supabaseKey.trim()}:null;
+const CFG_STATE=!window.RR_CONFIG?'nofile':SB?'ok':'nokey';
 let provider='local';
 function sbHeaders(extra){const h={apikey:SB.key,'Content-Type':'application/json'};if(/^eyJ/.test(SB.key))h.Authorization='Bearer '+SB.key;return Object.assign(h,extra||{});}
 async function sbLoad(){
@@ -865,10 +935,10 @@ async function sbLoad(){
     if(!r.ok)throw new Error('HTTP '+r.status);
     const a=await r.json();
     board=sortBoard(a.map(x=>({id:String(x.id),n:String(x.name||'PILOT').slice(0,7),s:Math.max(0,Math.floor(+x.score||0)),b:Math.max(0,Math.floor(+x.bridges||0)),d:Date.parse(x.created_at)||0})));
-    boardState='shared';
+    boardState='shared';boardInfo();
     if(board.length&&board[0].s>best){best=board[0].s;$('best').textContent=best.toLocaleString('cs-CZ');}
   }catch(e){
-    boardState='offline';board=localBoard;
+    boardState='offline';board=localBoard;boardInfo();
     if(window.console)console.warn('Žebříček Supabase je nedostupný:',e);
   }finally{clearTimeout(tm);}
   refreshOver();
@@ -880,9 +950,16 @@ async function sbAdd(rec){
 }
 if(window.claude&&typeof window.claude.use==='function'){provider='db';connectShared();}
 else if(SB){provider='sb';boardState='loading';sbLoad();}
+boardInfo();
 async function pruneShared(){
   /* keep the shared collection tidy: only the best ten stay */
   try{const snap=await scoresCol.orderBy('s','desc').limit(200).get();for(let i=10;i<snap.docs.length;i++){await scoresCol.doc(snap.docs[i].id).delete();}}catch(e){}
+}
+function skipEntry(){
+  if(!pendingEntry)return;
+  pendingEntry=false;$('entry').hidden=true;
+  const nt=$('boardNote');nt.textContent='Výsledek nebyl uložen do žebříčku.';nt.hidden=false;
+  $('btnAgain').focus();
 }
 async function submitEntry(){
   if(!pendingEntry)return;
@@ -930,7 +1007,7 @@ function addEntity(type,x,z,opt){
   if(type==='heli'){e.mesh=makeHeli();e.y=opt.y||6.5;e.amp=0.4+Math.random()*3;e.fq=0.25+Math.random()*0.45;e.yaw=Math.PI;e.shadow=makeShadow(3.2,4.4);}
   else if(type==='ship'){e.mesh=makeShip();e.yaw=(opt.dir||1)>0?-Math.PI/2:Math.PI/2;}
   else if(type==='fuel'){e.mesh=makeFuelPad();}
-  else if(type==='balloon'){e.mesh=makeBalloon();e.y=0.55;e.vy=0;e.rising=false;e.shadow=makeShadow(3.6,3.6);}
+  else if(type==='balloon'){e.mesh=makeBalloon();e.y=2.2;e.vy=0;e.rising=false;e.shadow=makeShadow(3.6,3.6);}
   else if(type==='lpad'){e.mesh=makeLaunchPad();}
   else if(type==='portal'){e.mesh=opt.mesh;e.yaw=opt.mesh.rotation.y;e.y=opt.mesh.position.y;}
   else if(type==='jet'){e.mesh=makeJet(M.grey,M.red,M.dark);e.mesh.scale.setScalar(0.8);e.y=opt.y||8;e.shadow=makeShadow(3.4,3.0);}
@@ -970,7 +1047,6 @@ function spawnSection(s){
     if(type==='fuel')lastFuel=lz;
     if(type==='balloon'){
       e.trigger=180+r()*140;e.vmax=2.5+r()*2.5;e.drift=(r()-0.5)*3;
-      const pad=addEntity('lpad',e.x,z);pad.mesh.position.x=e.x;
     }
     /* helicopter pair: a second machine in a different altitude band */
     if(type==='heli'&&r()<lerp(0.25,0.5,diff)){
@@ -994,7 +1070,7 @@ function spawnSection(s){
       let top=t.y+TUN_HALF+6;
       for(let dz=-11;dz<=11;dz+=5.5)for(let dx=0;dx<=7;dx+=3.5)top=Math.max(top,terrainBase(x+side*dx,t.z+dz)+2);
       const bottom=t.y-TUN_HALF-6;
-      const mesh=makePortal(top-bottom,t.y-TUN_HALF-bottom);
+      const mesh=makePortal(top-bottom,t.y-TUN_HALF-bottom,Math.floor(-t.z*7)+(side>0?1:0));
       mesh.rotation.y=side<0?-Math.PI/2:Math.PI/2;      /* extrusion runs from the face into the rock */
       mesh.position.set(x,bottom,t.z);
       addEntity('portal',x,t.z,{mesh});
@@ -1288,6 +1364,7 @@ function updateEntities(dt){
     else if(e.type==='fuel'){const on=(time*1.5+e.phase)%1<0.5;for(const b of m.userData.beacons)b.visible=on;m.position.y=Math.sin(time*1.1+e.phase)*0.06;}
     else if(e.type==='balloon'){
       if(!e.rising&&ahead<e.trigger)e.rising=true;
+      if(!e.rising){e.cy=e.y+Math.sin(time*0.8+e.phase)*0.35;m.position.y=e.cy;}
       if(e.rising){
         e.vy=Math.min(e.vy+dt*0.9,e.vmax);e.y+=e.vy*dt;e.x+=e.drift*dt;e.velx=e.drift;
         /* keep the envelope (radius ≈3.6) clear of canyon walls and islands */
@@ -1297,7 +1374,7 @@ function updateEntities(dt){
         else if(e.x<lo){e.x=lo;e.drift=Math.abs(e.drift)*0.5;}
         else if(e.x>hi){e.x=hi;e.drift=-Math.abs(e.drift)*0.5;}
       }
-      e.cy=e.y;m.position.y=e.y;m.position.x=e.x;m.rotation.y+=dt*0.15;
+      if(e.rising){e.cy=e.y;m.position.y=e.y;}m.position.x=e.x;m.rotation.y+=dt*0.15;
       const burn=(time*0.5+e.phase)%1<0.45;m.userData.flame.visible=burn;if(burn)m.userData.flame.scale.set(1.1+Math.random()*0.4,1.8+Math.random()*0.9,1);
     }
     else if(e.type==='jet'){m.rotation.z=-e.vx*0.006;m.userData.burner.scale.set(1,0.8+Math.random()*0.4,1);}
@@ -1385,7 +1462,8 @@ function updatePlayer(dt){
     if(P.fuel>0.08){P.engineOut=false;P.fallV=0;P.target=Math.max(45,P.target);AU.restart();msg('Motor naskočil<small>Vytáhni letadlo nahoru</small>');setTimeout(()=>{if(mode==='play'&&!P.engineOut)msg('');},1800);}
   }
   else if(refueling&&P.fuel<1){P.fuel=Math.min(1,P.fuel+dt*0.85);refuelCd-=dt;if(refuelCd<=0){refuelCd=0.09;AU.refuel(P.fuel);}}
-  else if(P.fuel<0.25&&!P.engineOut){klaxonCd-=dt;if(klaxonCd<=0){klaxonCd=0.6;AU.klaxon();}}
+  else if(P.fuel<0.25&&!P.engineOut){klaxonCd-=dt;if(klaxonCd<=0){const crit=P.fuel<0.12;klaxonCd=crit?0.55:1.1;AU.lowFuel(crit);if(P.fuel<0.25&&!crit&&!P.warned){P.warned=true;msg('Dochází palivo');setTimeout(()=>{if(mode==='play'&&!P.engineOut)msg('');},1500);}}}
+  if(P.fuel>0.3)P.warned=false;
 }
 
 /* ---------------- camera ---------------- */
@@ -1469,7 +1547,7 @@ function pollPad(){
     out.steer=clamp(out.steer+(btn(15)?1:0)-(btn(14)?1:0),-1,1);
     out.fire=btn(0)||btn(2)||btn(5);
     out.thr=val(7)-val(6)+(btn(12)?1:0)-(btn(13)?1:0)-ax(3);
-    out.pause=edge('pause',btn(9));out.cam=edge('cam',btn(3));out.start=edge('start',btn(0)||btn(9));
+    out.pause=edge('pause',btn(9));out.cam=edge('cam',btn(3));out.start=edge('start',btn(0)||btn(9));out.back=edge('back',btn(1));
   }else{
     /* flight sticks: trigger fires, a throttle lever is detected the first time it moves */
     out.fire=btn(0)||btn(1);
@@ -1597,6 +1675,7 @@ function frame(now){
   requestAnimationFrame(frame);
   let dt=Math.min(0.05,(now-last)/1000);last=now;
   PAD=pollPad();
+  if(PAD.back&&pendingEntry&&!$('over').hidden)skipEntry();
   if(PAD.pause)togglePause();
   else if(PAD.start){
     if(!$('over').hidden&&pendingEntry)submitEntry();
@@ -1631,6 +1710,7 @@ const held={};
 function actionFor(e){if(e.key==='+'||e.key==='=')return 'faster';if(e.key==='-'||e.key==='_')return 'slower';return codeAct[e.code]||null;}
 addEventListener('keydown',e=>{
   AU.resume();
+  if(e.code==='Escape'&&pendingEntry&&!$('over').hidden){e.preventDefault();skipEntry();return;}
   if(e.target&&e.target.tagName==='INPUT')return;   /* typing a name for the leaderboard */
   const a=actionFor(e);
   if(a){keys[a]=true;held[e.code]=a;e.preventDefault();}
@@ -1652,6 +1732,7 @@ document.querySelectorAll('.tb').forEach(b=>{
 });
 $('btnStart').addEventListener('click',startGame);
 $('btnAgain').addEventListener('click',()=>{pendingEntry=false;startGame();});
+$('btnSkip').addEventListener('click',skipEntry);
 $('entry').addEventListener('submit',e=>{e.preventDefault();submitEntry();});
 $('btnResume').addEventListener('click',togglePause);
 $('btnCam').addEventListener('click',e=>{toggleCam();e.currentTarget.blur();});
