@@ -1,0 +1,28 @@
+yaml
+name: Supabase keepalive
+
+on:
+  schedule:
+    - cron: '17 6 */3 * *'
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    env:
+      CONFIG: config.js
+    steps:
+      - uses: actions/checkout@v4
+      - name: Ping leaderboard
+        run: |
+          URL=$(grep -oP "supabaseUrl:\s*'\K[^']+" "$CONFIG")
+          KEY=$(grep -oP "supabaseKey:\s*'\K[^']+" "$CONFIG")
+          if [ -z "$URL" ] || [ -z "$KEY" ] || [ "$KEY" = "SEM_VLOZ_VEREJNY_KLIC" ]; then
+            echo "V $CONFIG chybí adresa nebo klíč Supabase."; exit 1
+          fi
+          if [[ "$KEY" == eyJ* ]]; then
+            curl -fsS "$URL/rest/v1/scores?select=id&limit=1" -H "apikey: $KEY" -H "Authorization: Bearer $KEY"
+          else
+            curl -fsS "$URL/rest/v1/scores?select=id&limit=1" -H "apikey: $KEY"
+          fi
+          echo; echo "Supabase odpověděl, projekt je aktivní."
